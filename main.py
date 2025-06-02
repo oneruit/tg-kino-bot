@@ -2,7 +2,6 @@ import asyncio
 import datetime
 import random
 import os
-import re
 import logging
 
 from aiogram import Bot, Dispatcher, F, types
@@ -10,7 +9,7 @@ from aiogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from aiohttp import TCPConnector, ClientSession
 from dotenv import load_dotenv
 
-from database import Database  # Импортируем условия для БД
+from database import *
 from valid_variables import *
 
 logging.basicConfig(
@@ -38,22 +37,15 @@ db.create_table()  # Создаёт таблицу, если её нет
 
 # Функция проверяет, есть ли пользователь написавший сообщений в БД
 def user_check_message_mw(handler, event: Message, data: dict):
-    user_id = event.from_user.id
-    username = event.from_user.username
-    db.check_and_add_user(user_id, username)  # Добавляет в БД если его нет
+    db.check_and_add_user(event.from_user.id, event.chat.id, event.from_user.username) # Добавляет в БД если его нет
     return handler(event, data)
 
 
 dp.message.middleware(user_check_message_mw)
 
-# Функция для получения никнейма из базы данных
-async def get_user_name(user_id: int, username: str) -> str:
-    # Retrieve user data from the database
-    user = db.get_user_data(user_id)
-    return user[2] if user[2] else (user[1] if user[1] else str(user[0]))
 
-# Функция удаления сообщения с таймером
 async def delete_message_after_timeout(message, timeout=30):
+    """Отправляет сообщение и удаляет его через заданное время."""
     await asyncio.sleep(timeout)
     await message.delete()
 
@@ -66,6 +58,7 @@ async def send_reply_with_timeout(message, text, timeout=15):
 
 
 async def variables_films_logic(message):
+    """ Логика переменных фильмов. """
     variables = re.sub(rf"^/(filmr|films)({BOT_USERNAME})?\s*", "", message.text) \
         .replace(",", " ") \
         .strip() \
@@ -137,9 +130,9 @@ async def variables_films_logic(message):
         return rating, year, media_type, genre, country
     except Exception as e:
         logging.error(f"Ошибка анализа данных variables_films_logic: {e}")
-        return
+        return None
 
-# Создание URL адреса
+
 def make_url(url_base, rating, year, media_type, genre, country):
     """Создаёт URL с учётом всех параметров, включая замену символов + и - на %2B и %21."""
     try:
@@ -163,9 +156,9 @@ def make_url(url_base, rating, year, media_type, genre, country):
         logging.error(f"Ошибка при создании URL make_url: {e}")
         return None
 
-# Запрос к API Kinopoisk
+
 async def fetch_movie_data(url):
-    """Получает данные о фильме по-указанному URL с обработкой ошибок."""
+    """Получает данные о фильме по-указанному URL API Kinopoisk с обработкой ошибок."""
     try:
         headers = {"X-API-KEY": KINOPOISK_API_TOKEN}
         async with ClientSession(connector=TCPConnector(ssl=False)) as session:
@@ -349,10 +342,9 @@ def format_filmr_response(data):
         logging.error(f"Ошибка форматирования фильма format_filmr_response для /filmr: {e}")
         return None
 
-
+# Обработчик команд /films, /filmr, /film.
 @dp.message(F.text.startswith(("/films", "/filmr", "/film")))
 async def send_filtered_movie(message: Message):
-    """Обработчик команд /films, /filmr, /film."""
     command = message.text.replace(f'{BOT_USERNAME}', '').split()[0][1:]
     try:
         if command == "films":
@@ -445,25 +437,13 @@ async def handle_film_title_command(message: Message):
     else:
         await message.reply("Ошибка при форматировании фильма 😢")
 
-# Общая логика получения списка пользователей
-async def get_mentions(users, requester_name):
-    emoji_pattern = re.compile("[\U0001F600-\U0001F64F]")
-    return [
-        f"{user['display_name']} [(@{user['username']})](tg://user?id={user['user_id']})"
-        if emoji_pattern.search(user['display_name'])
-        else f"[@{user['display_name']}](tg://user?id={user['user_id']})"
-        for user in users
-    ]
-
 # Функция для общего уведомления
 @dp.message(F.text.startswith('/everyone') | F.text.contains('@all') | F.text.contains('ривет все'))
 async def all_users_mention(message: Message):
-    users = db.get_all_users_except(message.from_user.id)
-    requester_name = await get_user_name(message.from_user.id, message.from_user.username)
+    users = db.get_all_users_except(message.from_user.id, message.chat.id)
     try:
         if users:
-            mentions = await get_mentions(users, requester_name)
-            response_text = f"{', '.join(mentions)}"
+            response_text = f"{', '.join(users)}"
         else:
             response_text = "Пустая база данных, либо вы там один 😔"
         await message.reply(response_text, parse_mode="Markdown")
@@ -498,13 +478,12 @@ async def watching_command(message: Message):
         )
         if watching_name else None
     )
-    users = db.get_all_users_watching(message.from_user.id)
-    requester_name = await get_user_name(message.from_user.id, message.from_user.username)
+    users = db.get_all_users_watching(message.from_user.id, message.chat.id)
+    requester_name = db.get_user_name(message.from_user.id, message.chat.id)
 
     try:
         if users:
-            mentions = await get_mentions(users, requester_name)
-            response_text = f"{requester_name} зовёт {', '.join(mentions)} посмотреть фильм"
+            response_text = f"{requester_name} зовёт {', '.join(users)} посмотреть фильм"
             if watching_name:
                 response_text += f" *{watching_name}*"
         else:
@@ -517,7 +496,6 @@ async def watching_command(message: Message):
 @dp.message(F.text.startswith('/watch') | F.text.startswith('/unwatch'))
 async def watch_unwatch(message: Message):
     command = message.text.split('@')[0].strip()  # Извлекаем команду без префикса @
-    user_id = message.from_user.id
 
     if command == '/watch':
         subscribe = True
@@ -534,7 +512,7 @@ async def watch_unwatch(message: Message):
         )
         return
 
-    if db.update_notify_watching_status(user_id, subscribe=subscribe):
+    if db.update_notify_watching_status(message.from_user.id, message.chat.id, subscribe=subscribe):
         await send_reply_with_timeout(message, success_message)
     else:
         await send_reply_with_timeout(message, fail_message)
@@ -545,6 +523,7 @@ async def setname_remove(message: Message):
     command_pattern = rf"(?i)^/?(setname|removename|myname)(?:{BOT_USERNAME})?\s*(?P<after>.*)"
     match = re.match(command_pattern, message.text)
     user_id = message.from_user.id
+    group_id = message.chat.id
 
     if match:
         command = match.group(1).lower()
@@ -566,13 +545,13 @@ async def setname_remove(message: Message):
                         f"Запрещено использовать: \\;:,<>?/=@&+$%|[]()\'\"!" + "{}"
                     )
                     return
-                db.set_custom_name(user_id, after_command)  # Сохранение имени в базе данных
+                db.set_custom_name(user_id, group_id, after_command)  # Сохранение имени в базе данных
                 await send_reply_with_timeout(message, f"Ваше имя *{after_command}* сохранено")
             elif command == "removename":
-                db.remove_custom_name(user_id)
+                db.remove_custom_name(user_id, group_id)
                 await send_reply_with_timeout(message, "Ваше имя удалено")
             elif command == "myname":
-                current_name = db.get_custom_name(user_id)  # Получаем текущее имя из базы данных
+                current_name = db.get_custom_name(user_id, group_id)  # Получаем текущее имя из базы данных
                 if current_name:
                     await send_reply_with_timeout(message, f"Ваше текущее имя: *{current_name}*")
                 else:
@@ -597,10 +576,8 @@ async def coin_flip(message: Message):
         await message.answer(f"Ой, кто-то из чата отправил {emoji} для {girl}")
     elif command in ["/coin", f'/coin{BOT_USERNAME}']:  # Если команда просто /coin
         result = random.choice(["Орёл", "Решка"])
-        user_name = await get_user_name(message.from_user.id,
-                                        message.from_user.username)  # Запрос имени для команды /coin
-        user_link = f"[{user_name}](tg://user?id={message.from_user.id})"
-        await message.answer(f"{user_link} подбросил монетку, поймал... и там {result}", parse_mode="Markdown")
+        user_name = db.get_user_name(message.from_user.id, message.chat.id)
+        await message.answer(f"{user_name} подбросил монетку, поймал... и там {result}", parse_mode="Markdown")
     else:
         await message.answer("Возможно Вы имели ввиду /coin или /coingirl?")
     await message.delete()
@@ -634,9 +611,10 @@ async def get_random_gif(query: str):
                 data = await response.json()
                 if data['results']:
                     return data['results'][0]['media_formats']['gif']['url']
+                return None
     except Exception as e:
         logging.error(f"Статус get_random_gif: {response.status}, ошибка: {e}")
-        return
+        return None
 
 # Функция случайной gif
 @dp.message(F.text.startswith('/gif'))
@@ -652,7 +630,7 @@ async def send_random_gif(message: Message):
         logging.error(f"Ошибка при получении GIF: {e}")
         await message.reply("Произошла ошибка при обработке запроса.")
 
-
+# Помощь
 @dp.message(F.text.startswith(('/help_film', '/help_film_genres', '/help_film_countries')))
 async def film_command_help(message: Message):
     if '/help_film_countries' in message.text:
@@ -749,6 +727,7 @@ async def somebody_added(message: Message):
 # Проверка наличия пользователя в базе данных
 @dp.message()
 async def check_db_user(message: Message):
+    logging.info(f'New user {message.from_user.id} added to group {message.chat.id}')
     return
 
 # Основные функции запуска бота
