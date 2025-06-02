@@ -1,0 +1,7 @@
+TELEGRAM_BOT_TOKEN=ТГБОТ_ТОКЕН
+KINOPOISK_API_TOKEN=КИНОПОИСК_ТОКЕН
+BOT_USERNAME=ИМЯ_ВАШЕГО_БОТА
+ADMIN_USER_ID=НОМЕР_ID_ВАШЕГО_АККАУНТА
+
+EXAMPLE_KEY_TOKEN = KEYNAME123YOURTOKEN321
+EXAMPLE_BOT_NAME = @BotFather
