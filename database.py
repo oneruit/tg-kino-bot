@@ -1,5 +1,7 @@
-import sqlite3
 import re
+import sqlite3
+
+# import logging
 
 VALID_MEDIA_TYPES = {
     "tv-series": "Сериал",
@@ -47,15 +49,14 @@ VALID_COUNTRIES = {
     "Эритрея", "Эсватини", "Эстония", "Эфиопия", "ЮАР", "Южная Корея", "Ямайка", "Япония"
 }
 
+
 class Database:
     def __init__(self, db_name='users.db'):
         self.db_name = db_name
 
-
     def connect(self):
         """Create a connection to the SQLite database."""
         return sqlite3.connect(self.db_name)
-
 
     def create_table(self):
         """Create the users table if it doesn't exist."""
@@ -68,7 +69,6 @@ class Database:
                         PRIMARY KEY (user_id, group_id)
                     )'''
         self.execute_query(query)
-
 
     def execute_query(self, query, params=(), fetchone=False, fetchall=False):
         """Execute a query and fetch results if needed."""
@@ -86,8 +86,7 @@ class Database:
             print(f"Database error: {e}")
             return None
 
-
-    def check_and_add_user(self, user_id: int, group_id: int, username: str, custom_name: str = None, notify_watching: int = 0):
+    def add_user(self, user_id: int, group_id: int, username: str, custom_name: str = None, notify_watching: int = 0):
         """Check if a user exists and add them if necessary, retrieving data in one function."""
         query = '''
         INSERT OR IGNORE INTO users (user_id, group_id, username, custom_name, notify_watching)
@@ -95,13 +94,16 @@ class Database:
         '''
         self.execute_query(query, (user_id, group_id, username, custom_name, notify_watching))
 
+    def delete_user(self, user_id: int, group_id: int):
+        """Delete a user from the database by user_id and group_id."""
+        query = 'DELETE FROM users WHERE user_id = ? AND group_id = ?'
+        self.execute_query(query, (user_id, group_id))
 
     def update_notify_watching_status(self, user_id: int, group_id: int, notify_watching: int) -> bool:
         """Update the notify_watching status for a user in a specific group."""
         query = 'UPDATE users SET notify_watching = ? WHERE user_id = ? AND group_id = ?'
         result = self.execute_query(query, (notify_watching, user_id, group_id))
         return result is None
-
 
     def get_user_name(self, user_id: int, group_id: int) -> str:
         """Retrieve all users in a group except the specified user ID."""
@@ -116,26 +118,25 @@ class Database:
                 "display_name": display_name,
                 "username": username if username else str(user_id)
             }
-        
+
             emoji_pattern = re.compile("[\U0001F600-\U0001F64F]")
             if emoji_pattern.search(dict_user['display_name']):
-                return f"{dict_user['display_name']} [({dict_user['username']})](tg://user?id={dict_user['user_id']})"
+                return f"{dict_user['display_name']} ([{dict_user['username']}](tg://user?id={dict_user['user_id']}))"
             else:
                 return f"[{dict_user['display_name']}](tg://user?id={dict_user['user_id']})"
         return str(user_id)
 
-
-    def get_users(self, excluded_user_id: int, group_id: int, watching_only: bool = False) -> list:
+    def get_users(self, excluded_user_id: int, group_id: int, watching_only: int = 0) -> list:
         """Retrieve users in a group except for the specified user, optionally filtering by watching status."""
         query = "SELECT user_id, custom_name, username FROM users WHERE user_id != ? AND group_id = ?"
-        
+
         if watching_only:
             query += " AND notify_watching = 1"
-        
+
         users = self.execute_query(query, (excluded_user_id, group_id), fetchall=True)
         formatted_users = []
         emoji_pattern = re.compile("[\U0001F600-\U0001F64F]")  # Регулярное выражение для проверки эмодзи
-        
+
         for user_id, custom_name, username in users:
             display_name = custom_name if custom_name else (username if username else str(user_id))
             formatted_user = {
@@ -146,7 +147,7 @@ class Database:
 
             # Форматируем упоминание пользователя
             if emoji_pattern.search(formatted_user['display_name']):
-                mention = f"{formatted_user['display_name']} [({formatted_user['username']})](tg://user?id={formatted_user['user_id']})"
+                mention = f"{formatted_user['display_name']} ([{formatted_user['username']}](tg://user?id={formatted_user['user_id']}))"
             else:
                 mention = f"[{formatted_user['display_name']}](tg://user?id={formatted_user['user_id']})"
 
@@ -154,18 +155,14 @@ class Database:
 
         return formatted_users
 
-
-    def set_custom_name(self, user_id: int, group_id: int, custom_name: str = None):
-        """Set the custom name for a user."""
-        query = 'UPDATE users SET custom_name = ? WHERE user_id = ? AND group_id = ?'
-        self.execute_query(query, (custom_name, user_id, group_id))
-
-
-    def remove_custom_name(self, user_id: int, group_id: int):
-        """Remove the custom name for a user."""
-        query = 'UPDATE users SET custom_name = NULL WHERE user_id = ? AND group_id = ?'
-        self.execute_query(query, (user_id, group_id))
-
+    def update_custom_name(self, user_id: int, group_id: int, custom_name: str = None):
+        """Установить custom_name (или удалить, если None)."""
+        if custom_name is not None:
+            query = 'UPDATE users SET custom_name = ? WHERE user_id = ? AND group_id = ?'
+            self.execute_query(query, (custom_name, user_id, group_id))
+        else:
+            query = 'UPDATE users SET custom_name = NULL WHERE user_id = ? AND group_id = ?'
+            self.execute_query(query, (user_id, group_id))
 
     def get_custom_name(self, user_id: int, group_id: int):
         """Retrieve the custom name of a user."""
