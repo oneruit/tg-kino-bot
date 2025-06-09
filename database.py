@@ -1,6 +1,52 @@
 import sqlite3
 import re
 
+VALID_MEDIA_TYPES = {
+    "tv-series": "Сериал",
+    "anime": "Аниме",
+    "movie": "Фильм",
+    "animated-series": "Анимация",
+    "cartoon": "Мультфильм"
+}
+
+VALID_GENRES = {
+    "аниме", "боевик", "вестерн", "военный", "детектив", "детский", "для взрослых",
+    "документальный", "драма", "игра", "история", "комедия", "концерт",
+    "короткометражка", "криминал", "мелодрама", "музыка", "мультфильм", "мюзикл",
+    "новости", "приключения", "реальное тв", "семейный", "спорт", "ток-шоу",
+    "триллер", "ужасы", "фантастика", "фильм-нуар", "фэнтези", "церемония"
+}
+
+VALID_COUNTRIES = {
+    "Австралия", "Австрия", "Азербайджан", "Албания", "Алжир", "Ангола", "Андорра",
+    "Антигуа и Барбуда", "Аргентина", "Армения", "Афганистан", "Багамы", "Бангладеш",
+    "Барбадос", "Бахрейн", "Белиз", "Белоруссия", "Бельгия", "Бенин", "Болгария",
+    "Боливия", "Босния и Герцеговина", "Ботсвана", "Бразилия", "Бруней", "Буркина-Фасо",
+    "Бурунди", "Вануату", "Ватикан", "Великобритания", "Венгрия", "Венесуэла", "Восточный Тимор",
+    "Вьетнам", "Габон", "Гаити", "Гайана", "Гамбия", "Гана", "Гватемала", "Гвинея",
+    "Гвинея-Бисау", "Германия", "Гондурас", "Гренада", "Греция", "Грузия", "Дания",
+    "Джибути", "Доминика", "Доминиканская Республика", "Египет", "Замбия", "Зимбабве",
+    "Израиль", "Индия", "Индонезия", "Иордания", "Ирак", "Иран", "Ирландия", "Исландия",
+    "Испания", "Италия", "Йемен", "Кабо-Верде", "Казахстан", "Камбоджа", "Камерун",
+    "Канада", "Катар", "Кения", "Кипр", "Киргизия", "Кирибати", "Китай", "Колумбия",
+    "Коморы", "Конго", "Коста-Рика", "Кот-д’Ивуар", "Куба", "Кувейт", "Лаос", "Латвия",
+    "Лесото", "Либерия", "Ливан", "Ливия", "Литва", "Лихтенштейн", "Люксембург",
+    "Маврикий", "Мавритания", "Мадагаскар", "Македония", "Малави", "Малайзия", "Мали",
+    "Мальдивы", "Мальта", "Марокко", "Маршалловы Острова", "Мексика", "Микронезия",
+    "Мозамбик", "Молдова", "Монако", "Монголия", "Мьянма", "Намибия", "Науру", "Непал",
+    "Нигер", "Нигерия", "Нидерланды", "Никарагуа", "Новая Зеландия", "Норвегия", "ОАЭ",
+    "Оман", "Пакистан", "Палау", "Панама", "Папуа — Новая Гвинея", "Парагвай", "Перу",
+    "Польша", "Португалия", "Россия", "Руанда", "Румыния", "Сальвадор", "Самоа",
+    "Сан-Марино", "Саудовская Аравия", "Северная Корея", "Сейшелы", "Сенегал", "Сент-Винсент и Гренадины",
+    "Сент-Китс и Невис", "Сент-Люсия", "Сербия", "Сингапур", "Сирия", "Словакия",
+    "Словения", "Соломоновы Острова", "Сомали", "Судан", "Суринам", "США", "Сьерра-Леоне",
+    "Таджикистан", "Таиланд", "Танзания", "Того", "Тонга", "Тринидад и Тобаго", "Тувалу",
+    "Тунис", "Туркмения", "Турция", "Уганда", "Узбекистан", "Украина", "Уругвай",
+    "Фиджи", "Филиппины", "Финляндия", "Франция", "Хорватия", "ЦАР", "Чад", "Черногория",
+    "Чехия", "Чили", "Швейцария", "Швеция", "Шри-Ланка", "Эквадор", "Экваториальная Гвинея",
+    "Эритрея", "Эсватини", "Эстония", "Эфиопия", "ЮАР", "Южная Корея", "Ямайка", "Япония"
+}
+
 class Database:
     def __init__(self, db_name='users.db'):
         self.db_name = db_name
@@ -41,28 +87,19 @@ class Database:
             return None
 
 
-    def check_and_add_user(self, user_id: int, group_id: int, username: str, custom_name: str = None):
-        """Check if a user exists and add them if necessary."""
-        user = self.get_user_data(user_id, group_id)
-        if not user:
-            self.add_user(user_id, group_id, username, custom_name)
+    def check_and_add_user(self, user_id: int, group_id: int, username: str, custom_name: str = None, notify_watching: int = 0):
+        """Check if a user exists and add them if necessary, retrieving data in one function."""
+        query = '''
+        INSERT OR IGNORE INTO users (user_id, group_id, username, custom_name, notify_watching)
+        VALUES (?, ?, ?, ?, ?)
+        '''
+        self.execute_query(query, (user_id, group_id, username, custom_name, notify_watching))
 
 
-    def add_user(self, user_id: int, group_id: int, username: str, custom_name: str = None, notify_watching: int = 0):
-        """Add a new user to the database for a specific group, if they don't already exist."""
-        query = 'SELECT * FROM users WHERE user_id = ? AND group_id = ?'
-        user = self.execute_query(query, (user_id, group_id), fetchone=True)
-        if not user:
-            query = '''INSERT INTO users (user_id, group_id, username, custom_name, notify_watching)
-                    VALUES (?, ?, ?, ?, ?)'''
-            self.execute_query(query, (user_id, group_id, username, custom_name, notify_watching))
-
-
-    def update_notify_watching_status(self, user_id: int, group_id: int, subscribe: bool) -> bool:
+    def update_notify_watching_status(self, user_id: int, group_id: int, notify_watching: int) -> bool:
         """Update the notify_watching status for a user in a specific group."""
-        notify_watching_status = 1 if subscribe else 0
         query = 'UPDATE users SET notify_watching = ? WHERE user_id = ? AND group_id = ?'
-        result = self.execute_query(query, (notify_watching_status, user_id, group_id))
+        result = self.execute_query(query, (notify_watching, user_id, group_id))
         return result is None
 
 
@@ -88,13 +125,17 @@ class Database:
         return str(user_id)
 
 
-    def get_all_users_except(self, excluded_user_id: int, group_id: int) -> list:
-        """Retrieve all users in a group except the specified user ID."""
+    def get_users(self, excluded_user_id: int, group_id: int, watching_only: bool = False) -> list:
+        """Retrieve users in a group except for the specified user, optionally filtering by watching status."""
         query = "SELECT user_id, custom_name, username FROM users WHERE user_id != ? AND group_id = ?"
+        
+        if watching_only:
+            query += " AND notify_watching = 1"
+        
         users = self.execute_query(query, (excluded_user_id, group_id), fetchall=True)
         formatted_users = []
         emoji_pattern = re.compile("[\U0001F600-\U0001F64F]")  # Регулярное выражение для проверки эмодзи
-
+        
         for user_id, custom_name, username in users:
             display_name = custom_name if custom_name else (username if username else str(user_id))
             formatted_user = {
@@ -111,31 +152,10 @@ class Database:
 
             formatted_users.append(mention)
 
-        return formatted_users  # Возвращаем список отформатированных упоминаний
-
-
-    def get_all_users_watching(self, excluded_user_id: int, group_id: int) -> list:
-        """Retrieve users in a group who are watching (notify_watching == 1), except for the specified user."""
-        query = "SELECT custom_name, username, user_id FROM users WHERE notify_watching = 1 AND user_id != ? AND group_id = ?"
-        users = self.execute_query(query, (excluded_user_id, group_id), fetchall=True)
-        formatted_users = []
-        for custom_name, username, user_id in users:
-            display_name = custom_name if custom_name else username if username else str(user_id)
-            formatted_users.append({
-                "display_name": display_name,
-                "username": username if username else str(user_id),
-                "user_id": user_id
-            })
         return formatted_users
 
 
-    def get_user_data(self, user_id: int, group_id: int):
-        """Retrieve data of a user from the database by user_id."""
-        query = 'SELECT * FROM users WHERE user_id = ? AND group_id = ?'
-        return self.execute_query(query, (user_id, group_id), fetchone=True)
-
-
-    def set_custom_name(self, user_id, group_id, custom_name):
+    def set_custom_name(self, user_id: int, group_id: int, custom_name: str = None):
         """Set the custom name for a user."""
         query = 'UPDATE users SET custom_name = ? WHERE user_id = ? AND group_id = ?'
         self.execute_query(query, (custom_name, user_id, group_id))

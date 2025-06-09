@@ -10,7 +10,6 @@ from aiohttp import TCPConnector, ClientSession
 from dotenv import load_dotenv
 
 from database import *
-from valid_variables import *
 
 logging.basicConfig(
     level=logging.INFO,  # Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -93,31 +92,31 @@ async def variables_films_logic(message):
                 year = value
 
             # Проверка типа
-            elif value_lower in {v.lower() for v in valid_media_types.values()}:
+            elif value_lower in {v.lower() for v in VALID_MEDIA_TYPES.values()}:
                 value_lower = value.lower()  # Игнорируем регистр
-                media_type = next(k for k, v in valid_media_types.items() if v.lower() == value_lower)
+                media_type = next(k for k, v in VALID_MEDIA_TYPES.items() if v.lower() == value_lower)
 
             # Проверка жанра
             if value.startswith("+") or value.startswith("-"):
                 clean_genre = value[1:].lower()  # Убираем + или - для проверки
-                if clean_genre in {genre.lower() for genre in valid_genres}:
-                    matched_genre = next(g for g in valid_genres if g.lower() == clean_genre)
+                if clean_genre in {genre.lower() for genre in VALID_GENRES}:
+                    matched_genre = next(g for g in VALID_GENRES if g.lower() == clean_genre)
                     genres.append(value[0] + matched_genre)  # Сохраняем префикс + или -
 
-            elif value_lower in {genre.lower() for genre in valid_genres}:
-                matched_genre = next(g for g in valid_genres if g.lower() == value_lower)
+            elif value_lower in {genre.lower() for genre in VALID_GENRES}:
+                matched_genre = next(g for g in VALID_GENRES if g.lower() == value_lower)
                 genres.append(f"+{matched_genre}")  # Жанру без префикса добавляем +
 
             # Проверка страны
             if value.startswith("+") or value.startswith("-"):
                 clean_country = value[1:].lower()  # Убираем + или - для проверки
-                for country in valid_countries:
+                for country in VALID_COUNTRIES:
                     country_words = {word.lower() for word in country.split() if len(word) > 2}  # Учитываем слова > 2 символов
                     if clean_country in country_words:
                         countries.append(value[0] + country)  # Сохраняем префикс + или -
 
-            elif value_lower in {word.lower() for country in valid_countries for word in country.split() if len(word) > 2}:
-                matched_country = next(country for country in valid_countries
+            elif value_lower in {word.lower() for country in VALID_COUNTRIES for word in country.split() if len(word) > 2}:
+                matched_country = next(country for country in VALID_COUNTRIES
                                        if value_lower in {word.lower() for word in country.split() if len(word) > 2})
                 countries.append(f"+{matched_country}")  # Стране без префикса добавляем +
 
@@ -197,7 +196,7 @@ def format_movie_common(movie):
     title_alt = movie.get("alternativeName", "")
     title_id = movie.get("id", "")
     title_type = movie.get("type", "")
-    title_type_rus = valid_media_types.get(title_type, "")
+    title_type_rus = VALID_MEDIA_TYPES.get(title_type, "")
     year = movie.get("year", "")
     description = movie.get("description", "Описание отсутствует.")
     short_description = movie.get("shortDescription", "Описание отсутствует.")
@@ -440,12 +439,12 @@ async def handle_film_title_command(message: Message):
 # Функция для общего уведомления
 @dp.message(F.text.startswith('/everyone') | F.text.contains('@all') | F.text.contains('ривет все'))
 async def all_users_mention(message: Message):
-    users = db.get_all_users_except(message.from_user.id, message.chat.id)
+    users = db.get_users(message.from_user.id, message.chat.id)
     try:
         if users:
             response_text = f"{', '.join(users)}"
         else:
-            response_text = "Пустая база данных, либо вы там один 😔"
+            response_text = "Я ещё не обновил свою базу данных и пока что Вы в ней один 😔"
         await message.reply(response_text, parse_mode="Markdown")
     except Exception as e:
         logging.error(f"Ошибка all_users_mention: {e}")
@@ -478,7 +477,7 @@ async def watching_command(message: Message):
         )
         if watching_name else None
     )
-    users = db.get_all_users_watching(message.from_user.id, message.chat.id)
+    users = db.get_users(message.from_user.id, message.chat.id, watching_only=True)
     requester_name = db.get_user_name(message.from_user.id, message.chat.id)
 
     try:
@@ -498,11 +497,11 @@ async def watch_unwatch(message: Message):
     command = message.text.split('@')[0].strip()  # Извлекаем команду без префикса @
 
     if command == '/watch':
-        subscribe = True
+        notify_watching = 1
         success_message = "Вы подписались на оповещения 🥳"
         fail_message = "Ошибка, не удалось подписать Вас на оповещения"
     elif command == '/unwatch':
-        subscribe = False
+        notify_watching = 0
         success_message = "Вы отписались от оповещений 😔"
         fail_message = "Ошибка, не удалось отписать Вас от оповещений"
     else:
@@ -512,7 +511,7 @@ async def watch_unwatch(message: Message):
         )
         return
 
-    if db.update_notify_watching_status(message.from_user.id, message.chat.id, subscribe=subscribe):
+    if db.update_notify_watching_status(message.from_user.id, message.chat.id, notify_watching):
         await send_reply_with_timeout(message, success_message)
     else:
         await send_reply_with_timeout(message, fail_message)
@@ -568,6 +567,7 @@ async def setname_remove(message: Message):
 @dp.message(F.text.startswith(('/coin', '/randomgirl')))
 async def coin_flip(message: Message):
     command = message.text.split()[0]
+    command = command.replace(f"{BOT_USERNAME}", "")
     if command in ["/coingirl", "/randomgirl", f'/coingirl{BOT_USERNAME}', f'/randomgirl{BOT_USERNAME}']:
         girls = ["Даши", "Саши", "Крис"]
         emojis = ["😊", "😍", "😘", "❤️", "😜"]
@@ -634,9 +634,9 @@ async def send_random_gif(message: Message):
 @dp.message(F.text.startswith(('/help_film', '/help_film_genres', '/help_film_countries')))
 async def film_command_help(message: Message):
     if '/help_film_countries' in message.text:
-        help_text = f'*Список доступных стран*:\n{", ".join(map(str, sorted(valid_countries)))}'
+        help_text = f'*Список доступных стран*:\n{", ".join(map(str, sorted(VALID_COUNTRIES)))}'
     elif '/help_film_genres' in message.text:
-        help_text = f'*Список доступных жанров*:\n{", ".join(map(str, sorted(valid_genres)))}'
+        help_text = f'*Список доступных жанров*:\n{", ".join(map(str, sorted(VALID_GENRES)))}'
     else:
         help_text = (
             "*Гайд по использованию команд:*\n\n"
@@ -726,13 +726,12 @@ async def somebody_added(message: Message):
 
 # Проверка наличия пользователя в базе данных
 @dp.message()
-async def check_db_user(message: Message):
-    logging.info(f'New user {message.from_user.id} added to group {message.chat.id}')
-    return
+async def check_user_in_db(message: Message):
+    # logging.info(f'User {message.from_user.id} send message in group {message.chat.id}')
+    pass
 
 # Основные функции запуска бота
 async def main():
-    logging.info(f"Bot {BOT_USERNAME} is running...")
     try:
         await dp.start_polling(bot)
     except KeyboardInterrupt:
